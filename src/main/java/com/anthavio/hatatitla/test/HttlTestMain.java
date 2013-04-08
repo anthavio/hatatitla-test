@@ -7,6 +7,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import javax.ws.rs.core.MediaType;
 import javax.xml.bind.annotation.XmlRootElement;
 
+import org.junit.Assert;
+
 import com.anthavio.hatatitla.HttpClient3Sender;
 import com.anthavio.hatatitla.HttpSender;
 import com.anthavio.hatatitla.PutRequest;
@@ -17,6 +19,8 @@ import com.sun.jersey.api.client.Client;
 import com.sun.jersey.api.client.ClientResponse;
 import com.sun.jersey.api.client.WebResource;
 import com.sun.jersey.api.client.WebResource.Builder;
+import com.sun.jersey.api.client.config.ClientConfig;
+import com.sun.jersey.api.client.config.DefaultClientConfig;
 
 public class HttlTestMain {
 
@@ -35,11 +39,11 @@ public class HttlTestMain {
 		try {
 			//System.setProperty("keep.alive", "true");
 			int iterations = 10000;
-			int threads = 10;
+			int threads = 15;
 			int port = jetty.getPort();
 
-			//long millis = httl(iterations, threads, port);
-			long millis = jersey(iterations, threads, port);
+			long millis = httl(iterations, threads, port);
+			//long millis = jersey(iterations, threads, port);
 			System.out.println(millis + " millis");
 		} catch (Exception x) {
 			x.printStackTrace();
@@ -52,7 +56,7 @@ public class HttlTestMain {
 		//HttpURLSender sender = new HttpURLSender("localhost:" + port);
 		//HttpClient4Sender sender = new HttpClient4Sender("localhost:" + port);
 		HttpClient3Sender sender = new HttpClient3Sender("localhost:" + port);
-		AtomicInteger counter = doSender(sender, 10, 1); //little warmup
+		AtomicInteger counter = doSender(sender, threads * 2, threads); //little warmup
 		synchronized (counter) {
 			counter.wait();
 		}
@@ -67,15 +71,16 @@ public class HttlTestMain {
 	}
 
 	private static long jersey(int iterations, int threads, int port) throws InterruptedException {
-		//ClientConfig clientConfig = new DefaultClientConfig();
+		ClientConfig clientConfig = new DefaultClientConfig();
+		clientConfig.getProperties().put(ClientConfig.PROPERTY_THREADPOOL_SIZE, threads);
+
 		//clientConfig.getFeatures().put(JSONConfiguration.FEATURE_POJO_MAPPING, Boolean.TRUE);
-		//Client client = Client.create(clientConfig);
-		Client client = Client.create();
-		//NonBlockingClient client = NonBlockingClient.create();
-		//ApacheHttpClient4 client = ApacheHttpClient4.create();
+		Client client = Client.create(clientConfig);
+		//NonBlockingClient client = NonBlockingClient.create(clientConfig);
+		//ApacheHttpClient4 client = ApacheHttpClient4.create(clientConfig);
 
 		WebResource webResource = client.resource("http://localhost:" + port + "/rest/");
-		AtomicInteger counter = doResource(webResource, 10, 1);//little warmup
+		AtomicInteger counter = doResource(webResource, threads * 2, threads);//little warmup
 		synchronized (counter) {
 			counter.wait();
 		}
@@ -90,72 +95,82 @@ public class HttlTestMain {
 	}
 
 	private static AtomicInteger doResource(final WebResource webResource, int iterations, int threadCount) {
-		final AtomicInteger counter = new AtomicInteger(iterations);
-		Thread[] threads = new Thread[threadCount];
+		final AtomicInteger icounter = new AtomicInteger(iterations);
+		final AtomicInteger tcounter = new AtomicInteger(threadCount);
+		final Thread[] threads = new Thread[threadCount];
 		for (int i = 0; i < threads.length; i++) {
-			threads[i] = new Thread() {
+			threads[i] = new Thread("http-" + i) {
 
 				@Override
 				public void run() {
-					while (counter.getAndDecrement() > 0) {
+					while (icounter.getAndDecrement() > 0) {
 						Builder builder = webResource.type(MediaType.APPLICATION_JSON).accept(MediaType.APPLICATION_JSON);
 						doEntity(builder, 1);
 					}
-					synchronized (counter) {
-						System.out.println("exit " + getName());
-						counter.notify();
+					synchronized (icounter) {
+						//System.out.println("exit " + getName());
+						int tcnt = tcounter.decrementAndGet();
+						if (tcnt == 0) {
+							icounter.notify();
+						}
 					}
 				}
 			};
 		}
 		for (int i = 0; i < threads.length; i++) {
 			threads[i].setDaemon(true);
-			threads[i].setName("http-" + i);
-			System.out.println("start " + threads[i].getName());
+			//System.out.println("start " + threads[i].getName());
 			threads[i].start();
 		}
-		return counter;
+		return icounter;
 	}
 
 	private static void doEntity(Builder builder, int iterations) {
 		for (int i = 0; i < iterations; i++) {
 			ClientResponse response = builder.put(ClientResponse.class, bean);
 			TestObject object = response.getEntity(TestObject.class);
+			Assert.assertEquals(200, response.getClientResponseStatus().getStatusCode());
+			Assert.assertEquals(bean.getNumber(), object.getNumber());
 			//System.out.println(object);
 		}
 	}
 
 	private static AtomicInteger doSender(final HttpSender sender, int iterations, int threadCount) {
-		final AtomicInteger counter = new AtomicInteger(iterations);
+		final AtomicInteger icounter = new AtomicInteger(iterations);
+		final AtomicInteger tcounter = new AtomicInteger(threadCount);
 		Thread[] threads = new Thread[threadCount];
 		for (int i = 0; i < threads.length; i++) {
-			threads[i] = new Thread() {
+			threads[i] = new Thread("http-" + i) {
 
 				@Override
 				public void run() {
-					while (counter.getAndDecrement() > 0) {
+					while (icounter.getAndDecrement() > 0) {
 						PutRequest request = sender.PUT("/rest/").body(bean, MediaType.APPLICATION_JSON).build();
 						doRequest(sender, request, 1);
 					}
-					synchronized (counter) {
-						System.out.println("exit " + getName());
-						counter.notify();
+					synchronized (icounter) {
+						//System.out.println("exit " + getName());
+						int tcnt = tcounter.decrementAndGet();
+						if (tcnt == 0) {
+							icounter.notify();
+						}
 					}
 				}
 			};
 		}
 		for (int i = 0; i < threads.length; i++) {
 			threads[i].setDaemon(true);
-			threads[i].setName("http-" + i);
-			System.out.println("start " + threads[i].getName());
+			//System.out.println("start " + threads[i].getName());
 			threads[i].start();
 		}
-		return counter;
+		return icounter;
 	}
 
 	private static void doRequest(HttpSender sender, SenderRequest request, int iterations) {
 		for (int i = 0; i < iterations; i++) {
 			ExtractedBodyResponse<TestObject> extract = sender.extract(request, TestObject.class);
+			Assert.assertEquals(200, extract.getResponse().getHttpStatusCode());
+			Assert.assertEquals(bean.getNumber(), extract.getBody().getNumber());
 			//System.out.println(extract.getBody());
 		}
 	}
