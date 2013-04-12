@@ -9,11 +9,10 @@ import javax.xml.bind.annotation.XmlRootElement;
 
 import org.junit.Assert;
 
-import com.anthavio.hatatitla.HttpClient3Sender;
-import com.anthavio.hatatitla.HttpSender;
-import com.anthavio.hatatitla.PutRequest;
-import com.anthavio.hatatitla.SenderRequest;
-import com.anthavio.hatatitla.inout.ResponseBodyExtractor.ExtractedBodyResponse;
+import com.anthavio.httl.HttpClient3Sender;
+import com.anthavio.httl.HttpSender;
+import com.anthavio.httl.SenderRequest;
+import com.anthavio.httl.inout.ResponseBodyExtractor.ExtractedBodyResponse;
 import com.anthavio.jetty.JettyWrapper;
 import com.sun.jersey.api.client.Client;
 import com.sun.jersey.api.client.ClientResponse;
@@ -145,7 +144,7 @@ public class HttlTestMain {
 				@Override
 				public void run() {
 					while (icounter.getAndDecrement() > 0) {
-						PutRequest request = sender.PUT("/rest/").body(bean, MediaType.APPLICATION_JSON).build();
+						SenderRequest request = sender.PUT("/rest/").body(bean, MediaType.APPLICATION_JSON).build();
 						doRequest(sender, request, 1);
 					}
 					synchronized (icounter) {
